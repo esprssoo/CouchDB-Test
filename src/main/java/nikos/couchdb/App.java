@@ -1,182 +1,132 @@
 package nikos.couchdb;
 
+import com.google.gson.*;
+import com.ibm.cloud.cloudant.v1.Cloudant;
+import com.ibm.cloud.cloudant.v1.model.IndexDefinition;
+import com.ibm.cloud.cloudant.v1.model.IndexField;
+import com.ibm.cloud.cloudant.v1.model.PostFindOptions;
+import com.ibm.cloud.cloudant.v1.model.PostIndexOptions;
+import com.ibm.cloud.sdk.core.security.BasicAuthenticator;
+import com.ibm.cloud.sdk.core.util.GsonSingleton;
+import okhttp3.*;
+
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
 
-import com.ibm.cloud.cloudant.v1.Cloudant;
-import com.ibm.cloud.cloudant.v1.model.AllDocsResult;
-import com.ibm.cloud.cloudant.v1.model.DesignDocument;
-import com.ibm.cloud.cloudant.v1.model.DesignDocumentViewsMapReduce;
-import com.ibm.cloud.cloudant.v1.model.Document;
-import com.ibm.cloud.cloudant.v1.model.DocumentResult;
-import com.ibm.cloud.cloudant.v1.model.FindResult;
-import com.ibm.cloud.cloudant.v1.model.GetDocumentOptions;
-import com.ibm.cloud.cloudant.v1.model.IndexDefinition;
-import com.ibm.cloud.cloudant.v1.model.IndexField;
-import com.ibm.cloud.cloudant.v1.model.IndexResult;
-import com.ibm.cloud.cloudant.v1.model.PostAllDocsOptions;
-import com.ibm.cloud.cloudant.v1.model.PostDocumentOptions;
-import com.ibm.cloud.cloudant.v1.model.PostFindOptions;
-import com.ibm.cloud.cloudant.v1.model.PostIndexOptions;
-import com.ibm.cloud.cloudant.v1.model.PostViewOptions;
-import com.ibm.cloud.cloudant.v1.model.PutDatabaseOptions;
-import com.ibm.cloud.cloudant.v1.model.PutDesignDocumentOptions;
-import com.ibm.cloud.cloudant.v1.model.ViewResult;
-import com.ibm.cloud.sdk.core.service.exception.ServiceResponseException;
-
 public class App {
-    public static final String DBName = "animaldb";
-    public static Cloudant client;
 
     public static void main(String[] args) {
-        client = Cloudant.newInstance("CLOUDANT");
+        var cloudant = new IBMCloudant();
+        cloudant.main();
 
-        var serverInformation = client
-                .getServerInformation()
-                .execute()
-                .getResult();
-
-        System.out.println("Server Version: " + serverInformation.getVersion());
-
+        var rest = new RestClient();
         try {
-            //createDatabase();
-        } catch (ServiceResponseException e) {
-            System.out.println("Database " + DBName + " already exists");
+            rest.main();
+        } catch (IOException e) {
         }
-
-//        var doc = new Document();
-//        doc.put("Name", "Brown bear");
-//        doc.put("Type", "Mammal");
-//        doc.put("Size", "450cm");
-//        doc.put("Weight", 700);
-//        var result = createDoc(doc);
-
-//        var result = getAllDocs();
-//        var result = createIndex();
-//        var result = findDoc("Dog");
-
-//        var result = createMapDesignDocument();
-        var result = query();
-
-        System.out.println(result);
     }
 
-    public static void createDatabase() {
-        var putDatabaseOptions = new PutDatabaseOptions.Builder()
-                .db(DBName)
+}
+
+class IBMCloudant {
+    public void main() {
+        // Connect
+        var authenticator = new BasicAuthenticator.Builder()
+                .username("admin")
+                .password("password")
                 .build();
+        var client = new Cloudant(Cloudant.DEFAULT_SERVICE_NAME, authenticator);
+        var serverInfo = client.getServerInformation().execute().getResult();
+        System.out.println(serverInfo.getVersion());
 
-        var response = client.putDatabase(putDatabaseOptions) // PUT '/animaldb'
-                .execute()
-                .getResult();
-
-        System.out.println("Put Database: " + response);
-    }
-
-    public static DocumentResult createDoc(Document document) {
-        var postDocumentOptions = new PostDocumentOptions.Builder()
-                .db(DBName)
-                .document(document)
-                .build();
-
-        return client.postDocument(postDocumentOptions).execute().getResult();  // POST '/animaldb'
-    }
-
-    public static AllDocsResult getAllDocs() {
-        var postDocumentOptions = new PostAllDocsOptions.Builder()
-                .db(DBName)
-                // .key("key")
-                .includeDocs(true)
-                .build();
-
-        return client.postAllDocs(postDocumentOptions).execute().getResult(); // POST '/animaldb/_all_docs/'
-    }
-
-    public static Document getDoc(String id) {
-        var options = new GetDocumentOptions.Builder()
-                .db(DBName)
-                .docId(id)
-                .build();
-
-        return client.getDocument(options)
-                .execute()
-                .getResult();
-    }
-
-    public static IndexResult createIndex() {
+        // Create index for "Weight"
         var fields = new IndexField.Builder()
-                .add("Name", "asc")
+                .add("Weight", "asc")
                 .build();
-
         var index = new IndexDefinition.Builder()
                 .addFields(fields)
-                // .partialFilterSelector(selector)
                 .build();
-
         var indexOptions = new PostIndexOptions.Builder()
-                .db(DBName)
-                .name("getAnimalByName")
-                .ddoc("json-index")
-                .type("json") // "json" or "text"
+                .db("animaldb")
+                .name("animalWeightIndex")
+                .ddoc("weight-json-index")
+                .type("json")
                 .index(index)
                 .build();
+        client.postIndex(indexOptions).execute();
 
-        return client.postIndex(indexOptions).execute().getResult(); // POST '/animaldb/_index'
-    }
-
-    public static FindResult findDoc(String animalName) {
-        var expression = Collections.singletonMap("$eq", animalName);
-        Map<String, Object> selector = Collections.singletonMap("Name", expression);
-
-//        Map<String, Object> selector = Collections.singletonMap("$and", Arrays.asList(
-//                Collections.singletonMap("Name", animalName),
-//                Collections.singletonMap("Weight", Collections.singletonMap("$gte", 6))));
-
-        var sort = Collections.singletonMap("Name", "asc");
-
+        // Find animal documents by name "Brown bear" sorted by Weight
+        Map<String, Object> selector = Collections.singletonMap("Name",
+                Collections.singletonMap("$eq", "Brown bear"));
         var findOptions = new PostFindOptions.Builder()
-                .db(DBName)
+                .db("animaldb")
                 .selector(selector)
                 .fields(Arrays.asList("_id", "Type", "Name", "Size", "Weight"))
-                .addSort(sort)
+                .addSort(Collections.singletonMap("Weight", "desc"))
                 .build();
-
-        return client.postFind(findOptions).execute().getResult(); // POST '/animaldb/_find'
+        var result = client.postFind(findOptions).execute().getResult();
+        System.out.println(result);
     }
+}
 
-    public static DocumentResult createMapDesignDocument() {
-        var animalsView = new DesignDocumentViewsMapReduce.Builder()
-                .map("""
-                        function(doc) {
-                            if (doc.Weight && doc.Weight > 50) {
-                                emit(doc.Name, doc.Weight);
-                            }
-                        }
-                        """)
-                .reduce("_count")
+class RestClient {
+
+    public void main() throws IOException {
+        var url = "http://localhost:5984";
+        var credentials = Credentials.basic("admin", "password");
+        var client = new OkHttpClient();
+
+        // Connect - get server info
+        var request = new Request.Builder()
+                .get()
+                .url(url)
+                .header("Accept", "application/json")
                 .build();
+        Response infoResponse = client.newCall(request).execute();
+        var info = GsonSingleton.getGson().fromJson(infoResponse.body().charStream(), JsonElement.class);
+        System.out.println(info.getAsJsonObject().get("version"));
 
-        var designDocument = new DesignDocument();
-        designDocument.setViews(Collections.singletonMap("getHeavyAnimals", animalsView));
-
-        var designDocumentOptions = new PutDesignDocumentOptions.Builder()
-                .db(DBName)
-                .designDocument(designDocument)
-                .ddoc("heavyanimals")
+        // Create index for "Weight"
+        var jsonObj = new JsonObject();
+        jsonObj.addProperty("name", "animalWeightIndex");
+        jsonObj.addProperty("ddoc", "weight-json-index");
+        jsonObj.addProperty("type", "json");
+        jsonObj.add("index", GsonSingleton.getGson().toJsonTree(Collections.singletonMap(
+                "index", Collections.singletonMap("fields", Collections.singletonList("Weight"))
+        )));
+        var json = GsonSingleton.getGson().toJson(jsonObj);
+        var body = RequestBody.create(json, MediaType.get("application/json; charset=utf-8"));
+        request = new Request.Builder()
+                .post(body)
+                .url(url + "/animaldb/_index")
+                .header("Authorization", credentials)
                 .build();
+        client.newCall(request).execute();
 
-        return client.putDesignDocument(designDocumentOptions).execute().getResult(); // PUT '/animaldb/_design/heavyanimals'
-    }
-
-    public static ViewResult query() {
-        var viewOptions = new PostViewOptions.Builder()
-                .db(DBName)
-                .ddoc("heavyanimals")
-                .view("getHeavyAnimals")
+        // Find animal documents by name "Brown bear" sorted by Weight
+        Map<String, Object> selector = Collections.singletonMap("Name",
+                Collections.singletonMap("$eq", "Brown bear"));
+        jsonObj = new JsonObject();
+        jsonObj.add("sort", GsonSingleton.getGson().toJsonTree(
+                Collections.singletonList(Collections.singletonMap("Weight", "desc"))
+        ));
+        jsonObj.add("selector", GsonSingleton.getGson().toJsonTree(
+                Collections.singletonMap("Name", Collections.singletonMap(
+                        "$eq", "Brown bear"
+                ))
+        ));
+        json = GsonSingleton.getGson().toJson(jsonObj);
+        body = RequestBody.create(json, MediaType.get("application/json; charset=utf-8"));
+        request = new Request.Builder()
+                .post(body)
+                .url(url + "/animaldb/_find")
+                .header("Authorization", credentials)
                 .build();
-
-        return client.postView(viewOptions).execute().getResult(); // POST '/animaldb/_design/heavyanimals/_view/getHeavyAnimals'
+        Response animalResponse = client.newCall(request).execute();
+        var docs = GsonSingleton.getGson().fromJson(animalResponse.body().charStream(), JsonElement.class);
+        System.out.println(docs);
     }
 
 }
