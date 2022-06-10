@@ -106,8 +106,6 @@ class RestClient {
         client.newCall(request).execute();
 
         // Find animal documents by name "Brown bear" sorted by Weight
-        Map<String, Object> selector = Collections.singletonMap("Name",
-                Collections.singletonMap("$eq", "Brown bear"));
         jsonObj = new JsonObject();
         jsonObj.add("sort", GsonSingleton.getGson().toJsonTree(
                 Collections.singletonList(Collections.singletonMap("Weight", "desc"))
